@@ -21,6 +21,33 @@ function typeText(el, text, speed, onDone) {
   }, speed);
 }
 
+// types into el while keeping a blinking <span class="cursor"> at the end —
+// used for the love letter, matching the .letter-text .cursor styles in CSS
+function typeTextWithCursor(el, text, speed, onDone) {
+  el.textContent = '';
+  const cursor = document.createElement('span');
+  cursor.className = 'cursor';
+  el.appendChild(cursor);
+
+  if (prefersReducedMotion) {
+    cursor.remove();
+    el.textContent = text;
+    if (onDone) onDone();
+    return;
+  }
+
+  let i = 0;
+  const timer = setInterval(() => {
+    cursor.insertAdjacentText('beforebegin', text.charAt(i));
+    i++;
+    if (i >= text.length) {
+      clearInterval(timer);
+      setTimeout(() => cursor.remove(), 700);
+      if (onDone) onDone();
+    }
+  }, speed);
+}
+
 // ============================================================
 // Background particles (canvas)
 // ============================================================
@@ -97,18 +124,11 @@ function spawnHeart() {
   setTimeout(() => heart.remove(), duration * 1000);
 }
 
-// keep a gentle steady stream of hearts drifting up in the background
 setInterval(spawnHeart, 900);
-// a little welcoming burst on load
-for (let i = 0; i < 6; i++) {
-  setTimeout(spawnHeart, i * 180);
-}
+for (let i = 0; i < 6; i++) setTimeout(spawnHeart, i * 180);
 
-// a denser, celebratory burst — used when big moments happen (opening the heart, the final button)
 function heartBurst(count = 22) {
-  for (let i = 0; i < count; i++) {
-    setTimeout(spawnHeart, i * 45);
-  }
+  for (let i = 0; i < count; i++) setTimeout(spawnHeart, i * 45);
 }
 
 // ============================================================
@@ -121,42 +141,39 @@ const site = document.getElementById('site');
 
 const introMessage = "Everything on the next few pages is true. Every word, every memory, every reason — all of it is you.";
 
+document.body.style.overflow = 'hidden';
+
 window.addEventListener('DOMContentLoaded', () => {
   setTimeout(() => {
-    typeText(introLineEl, introMessage, 35);
+    typeText(introLineEl, introMessage, 35, () => {
+      introLineEl.classList.add('done');
+    });
   }, 500);
 });
 
 openHeartBtn.addEventListener('click', () => {
   heartBurst(30);
-  introSection.style.transition = 'opacity 0.8s ease, transform 0.8s ease';
-  introSection.style.opacity = '0';
-  introSection.style.transform = 'scale(0.96)';
+  introSection.classList.add('leaving');
 
   setTimeout(() => {
     introSection.hidden = true;
     site.hidden = false;
     document.body.style.overflow = 'auto';
-    window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
-
-    // gentle reveal of the hero section
-    const hero = document.getElementById('hero');
-    hero.classList.add('reveal-in');
+    window.scrollTo(0, 0);
 
     initScrollReveal();
     initMemoryFlip();
+    initReasonTaps();
+    initFinalSequence();
     startCounter();
-    typeLetter();
-  }, 750);
+  }, 1150);
 });
 
-// lock scroll on the intro screen until the heart is opened
-document.body.style.overflow = 'hidden';
-
 // ============================================================
-// Love letter — typed out once, when the site unlocks
+// Love letter — typed out with a blinking cursor when it scrolls into view
 // ============================================================
 const letterTextEl = document.getElementById('letterText');
+const letterSection = document.getElementById('letterSection');
 
 const letterMessage =
   "My Nida,\n\n" +
@@ -170,15 +187,12 @@ let letterTyped = false;
 function typeLetter() {
   if (letterTyped) return;
   letterTyped = true;
-  setTimeout(() => {
-    typeText(letterTextEl, letterMessage, 22);
-  }, 400);
+  typeTextWithCursor(letterTextEl, letterMessage, 22);
 }
 
 // ============================================================
 // Live "time together" counter
 // ============================================================
-// Update this to the exact moment your story began.
 const START_DATE = new Date('2025-02-23T00:00:00');
 
 const cDays = document.getElementById('cDays');
@@ -187,7 +201,6 @@ const cMinutes = document.getElementById('cMinutes');
 const cSeconds = document.getElementById('cSeconds');
 
 let counterStarted = false;
-let counterInterval = null;
 
 function updateCounter() {
   const now = new Date();
@@ -215,54 +228,122 @@ function startCounter() {
   if (counterStarted) return;
   counterStarted = true;
   updateCounter();
-  counterInterval = setInterval(updateCounter, 1000);
+  setInterval(updateCounter, 1000);
 }
 
 // ============================================================
-// Scroll-reveal for timeline, reasons, memory cards, letter, counter
+// Scroll-reveal — matches CSS rules that key off `.in-view`
+// (.section-title, .story-date, .tl-card)
 // ============================================================
 function initScrollReveal() {
-  const targets = document.querySelectorAll(
-    '.tl-card, .reason-card, .memory-card, .letter-card, .counter-box, .final-line, .final-title'
-  );
-
-  targets.forEach((el) => el.classList.add('reveal-pending'));
+  const targets = document.querySelectorAll('.section-title, .story-date, .tl-card');
 
   if (prefersReducedMotion) {
-    targets.forEach((el) => el.classList.add('reveal-in'));
-    return;
+    targets.forEach((el) => el.classList.add('in-view'));
+  } else {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('in-view');
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.2, rootMargin: '0px 0px -60px 0px' }
+    );
+    targets.forEach((el) => observer.observe(el));
   }
 
-  const observer = new IntersectionObserver(
+  // start typing the letter the moment its section enters view
+  const letterObserver = new IntersectionObserver(
     (entries) => {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
-          entry.target.classList.add('reveal-in');
-          entry.target.classList.remove('reveal-pending');
-          observer.unobserve(entry.target);
+          typeLetter();
+          letterObserver.unobserve(entry.target);
         }
       });
     },
-    { threshold: 0.2, rootMargin: '0px 0px -40px 0px' }
+    { threshold: 0.35 }
   );
-
-  targets.forEach((el) => observer.observe(el));
+  letterObserver.observe(letterSection);
 }
 
 // ============================================================
-// Memory wall — tap/click a card to flip it
+// Memory wall — tap/click a card to flip it (.flipped)
 // ============================================================
 function initMemoryFlip() {
   const cards = document.querySelectorAll('.memory-card');
   cards.forEach((card) => {
-    card.addEventListener('click', () => {
-      card.classList.toggle('flipped');
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    card.addEventListener('click', () => card.classList.toggle('flipped'));
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        card.classList.toggle('flipped');
+      }
     });
   });
 }
 
 // ============================================================
-// Final section — "One Last Thing" modal
+// Reason cards — tap highlight for touch devices (.tapped mirrors :hover)
+// ============================================================
+function initReasonTaps() {
+  const cards = document.querySelectorAll('.reason-card');
+  cards.forEach((card) => {
+    card.addEventListener('click', () => {
+      card.classList.add('tapped');
+      setTimeout(() => card.classList.remove('tapped'), 900);
+    });
+  });
+}
+
+// ============================================================
+// Final section — staggered reveal (.show) + modal
+// ============================================================
+function initFinalSequence() {
+  const finalSection = document.getElementById('finalSection');
+  const line1 = document.getElementById('finalLine1');
+  const line2 = document.getElementById('finalLine2');
+  const line3 = document.getElementById('finalLine3');
+  const title = document.getElementById('finalTitle');
+  const heartEl = document.querySelector('.final-heart');
+  const btn = document.getElementById('lastThingBtn');
+
+  const sequence = [
+    { el: line1, delay: 0 },
+    { el: line2, delay: 650 },
+    { el: line3, delay: 1300 },
+    { el: title, delay: 2100 },
+    { el: heartEl, delay: 2900 },
+    { el: btn, delay: 3500 }
+  ];
+
+  const runSequence = () => {
+    sequence.forEach(({ el, delay }) => {
+      setTimeout(() => el.classList.add('show'), prefersReducedMotion ? 0 : delay);
+    });
+  };
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          runSequence();
+          observer.unobserve(entry.target);
+        }
+      });
+    },
+    { threshold: 0.4 }
+  );
+  observer.observe(finalSection);
+}
+
+// ============================================================
+// "One Last Thing" modal
 // ============================================================
 const lastThingBtn = document.getElementById('lastThingBtn');
 const modalOverlay = document.getElementById('modalOverlay');
@@ -271,25 +352,23 @@ const closeModalBtn = document.getElementById('closeModalBtn');
 lastThingBtn.addEventListener('click', () => {
   heartBurst(35);
   modalOverlay.hidden = false;
-  requestAnimationFrame(() => modalOverlay.classList.add('show'));
+  requestAnimationFrame(() => modalOverlay.classList.add('visible'));
 });
 
-closeModalBtn.addEventListener('click', () => {
-  modalOverlay.classList.remove('show');
+function closeModal() {
+  modalOverlay.classList.remove('visible');
   setTimeout(() => {
     modalOverlay.hidden = true;
   }, 400);
-});
+}
+
+closeModalBtn.addEventListener('click', closeModal);
 
 modalOverlay.addEventListener('click', (e) => {
-  if (e.target === modalOverlay) {
-    closeModalBtn.click();
-  }
+  if (e.target === modalOverlay) closeModal();
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !modalOverlay.hidden) {
-    closeModalBtn.click();
-  }
+  if (e.key === 'Escape' && !modalOverlay.hidden) closeModal();
 });
-       
+    
